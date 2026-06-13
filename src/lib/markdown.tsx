@@ -54,7 +54,6 @@ export function formatMarkdown(text: string): React.ReactNode[] {
         className: "list-disc pl-5 my-1.5 space-y-0.5",
       }, ...listItems))
       listItems = []
-      inList = false
     }
   }
 
