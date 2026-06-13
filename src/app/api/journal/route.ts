@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { analyzeJournalEntry } from "@/lib/claude"
 import { validateJournalText, sanitizeText } from "@/lib/validation"
+import type { ApiConfig } from "@/lib/api-config"
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { raw_text } = body
+    const { raw_text, apiConfig } = body as { raw_text: string; apiConfig?: ApiConfig }
 
     const validationError = validateJournalText(raw_text)
     if (validationError) {
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
 
     let analysis
     try {
-      analysis = await analyzeJournalEntry(sanitized)
+      analysis = await analyzeJournalEntry(sanitized, apiConfig)
     } catch {
       analysis = {
         stress_score: 5,

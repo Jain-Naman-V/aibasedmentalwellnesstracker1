@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useRef } from "react"
 import type { ChatMessage } from "@/types"
-import { mockChatHistory } from "@/data/mock-data"
+import { mockChatHistory, getRecentMoodAverage, getTopTriggers } from "@/data/mock-data"
+import { getApiConfig } from "@/lib/api-config"
 
 function getMockResponse(userMessage: string): string {
   const lower = userMessage.toLowerCase()
@@ -30,46 +31,6 @@ export function useChat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
-  const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim() || isLoading) return
-
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      user_id: "user-1",
-      role: "user",
-      content,
-      created_at: new Date().toISOString(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setIsLoading(true)
-
-    try {
-      const response = getMockResponse(content)
-      await new Promise((r) => setTimeout(r, 800 + Math.random() * 600))
-
-      const assistantMessage: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        user_id: "user-1",
-        role: "assistant",
-        content: response,
-        created_at: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch {
-      const fallback: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        user_id: "user-1",
-        role: "assistant",
-        content: "I'm here to listen. Could you tell me more about what's on your mind?",
-        created_at: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, fallback])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [isLoading])
-
   const streamMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return
 
@@ -88,40 +49,81 @@ export function useChat() {
     abortRef.current = new AbortController()
 
     try {
-      const fullResponse = getMockResponse(content)
-      const words = fullResponse.split(" ")
+      const apiConfig = getApiConfig()
 
-      const assistantMessage: ChatMessage = {
+      if (apiConfig?.apiKey && apiConfig?.baseUrl) {
+        const context = {
+          exam_type: "NEET",
+          recent_mood_avg: getRecentMoodAverage(),
+          recent_triggers: getTopTriggers().slice(0, 3),
+        }
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content, apiConfig, context }),
+          signal: abortRef.current.signal,
+        })
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Request failed" }))
+          throw new Error(err.error || `HTTP ${res.status}`)
+        }
+
+        const reader = res.body?.getReader()
+        if (!reader) throw new Error("No response body")
+
+        const decoder = new TextDecoder()
+        const assistantId = `ai-${Date.now()}`
+
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, user_id: "user-1", role: "assistant", content: "", created_at: new Date().toISOString() },
+        ])
+
+        let buffer = ""
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (abortRef.current?.signal.aborted) break
+          buffer += decoder.decode(value, { stream: true })
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last.role === "assistant") {
+              updated[updated.length - 1] = { ...last, content: buffer }
+            }
+            return updated
+          })
+        }
+      } else {
+        const response = getMockResponse(content)
+        await new Promise((r) => setTimeout(r, 800 + Math.random() * 600))
+
+        setMessages((prev) => [
+          ...prev,
+          { id: `ai-${Date.now()}`, user_id: "user-1", role: "assistant", content: response, created_at: new Date().toISOString() },
+        ])
+      }
+    } catch {
+      if (abortRef.current?.signal.aborted) return
+      const fallback: ChatMessage = {
         id: `ai-${Date.now()}`,
         user_id: "user-1",
         role: "assistant",
-        content: "",
+        content: "I'm here to listen. Could you tell me more about what's on your mind?",
         created_at: new Date().toISOString(),
       }
-      setMessages((prev) => [...prev, assistantMessage])
-
-      for (let i = 0; i < words.length; i++) {
-        if (abortRef.current?.signal.aborted) break
-        await new Promise((r) => setTimeout(r, 30 + Math.random() * 20))
-        setMessages((prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = {
-              ...last,
-              content: last.content + (i === 0 ? "" : " ") + words[i],
-            }
-          }
-          return updated
-        })
-      }
-    } catch {
-      // streaming failed silently
+      setMessages((prev) => [...prev, fallback])
     } finally {
       setIsLoading(false)
       setIsStreaming(false)
     }
   }, [isLoading])
+
+  const sendMessage = useCallback(async (content: string) => {
+    return streamMessage(content)
+  }, [streamMessage])
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort()

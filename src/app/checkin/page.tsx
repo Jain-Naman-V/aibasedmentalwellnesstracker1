@@ -71,6 +71,7 @@ export default function CheckinPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               raw_text: journalText,
+              apiConfig,
             }),
           })
           if (!res.ok) throw new Error(`AI analysis failed (HTTP ${res.status})`)

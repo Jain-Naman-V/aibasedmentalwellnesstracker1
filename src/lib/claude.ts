@@ -1,4 +1,5 @@
-const API_URL = "https://api.anthropic.com/v1/messages"
+import type { ApiConfig } from "./api-config"
+
 const REQUEST_TIMEOUT_MS = 30000
 
 interface ClaudeMessage {
@@ -6,55 +7,94 @@ interface ClaudeMessage {
   content: string
 }
 
-interface ClaudeResponse {
-  content: { text: string }[]
+function isAnthropic(baseUrl: string) {
+  return baseUrl.includes("anthropic.com")
 }
 
-function getApiKey(): string {
-  const key = process.env.ANTHROPIC_API_KEY
-  if (!key) {
-    throw new Error("ANTHROPIC_API_KEY is not set")
-  }
-  return key
+function providerConfig(apiConfig?: ApiConfig) {
+  const key = apiConfig?.apiKey || process.env.ANTHROPIC_API_KEY || ""
+  const baseUrl = apiConfig?.baseUrl || "https://api.anthropic.com/v1"
+  const model = apiConfig?.model || "claude-sonnet-4-20250514"
+  return { apiKey: key, baseUrl, model }
 }
 
-async function claudeRequest(
+async function callAnthropic(
+  apiKey: string,
+  baseUrl: string,
+  model: string,
   systemPrompt: string,
-  messages: ClaudeMessage[],
-  maxTokens = 1024
+  messages: ClaudeMessage[]
 ): Promise<string> {
-  const apiKey = getApiKey()
-
+  const url = baseUrl.endsWith("/") ? `${baseUrl}messages` : `${baseUrl}/messages`
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-
   try {
-    const res = await fetch(API_URL, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: maxTokens,
-        system: systemPrompt,
-        messages,
-      }),
+      body: JSON.stringify({ model, max_tokens: 2048, system: systemPrompt, messages }),
       signal: controller.signal,
     })
-
     if (!res.ok) {
-      const error = await res.text()
-      throw new Error(`Claude API error: ${res.status} ${error}`)
+      const err = await res.text()
+      throw new Error(`Anthropic API error: ${res.status} ${err}`)
     }
-
-    const data: ClaudeResponse = await res.json()
+    const data = await res.json()
     return data.content[0].text
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+async function callOpenAICompatible(
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+  systemPrompt: string,
+  messages: ClaudeMessage[]
+): Promise<string> {
+  const url = baseUrl.endsWith("/") ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+      }),
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`API error: ${res.status} ${err}`)
+    }
+    const data = await res.json()
+    return data.choices[0].message.content
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+function callProvider(
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+  systemPrompt: string,
+  messages: ClaudeMessage[]
+): Promise<string> {
+  if (isAnthropic(baseUrl)) {
+    return callAnthropic(apiKey, baseUrl, model, systemPrompt, messages)
+  }
+  return callOpenAICompatible(apiKey, baseUrl, model, systemPrompt, messages)
 }
 
 const JOURNAL_ANALYSIS_SYSTEM_PROMPT = `You are a mental wellness analysis engine for students preparing for competitive exams.
@@ -69,12 +109,14 @@ Analyze the student's journal entry and return ONLY valid JSON with these fields
 IMPORTANT: If you detect language suggesting self-harm, suicidal ideation, or crisis, include a crisis_resources field with iCall (+91-9152987821) and Vandrevala Foundation (1860-266-2345) helpline numbers.
 You are a wellness companion tool, not a therapist or medical professional.`
 
-export async function analyzeJournalEntry(text: string) {
+export async function analyzeJournalEntry(text: string, apiConfig?: ApiConfig) {
   if (!text || text.trim().length === 0) {
     throw new Error("Journal text must not be empty")
   }
 
-  const response = await claudeRequest(JOURNAL_ANALYSIS_SYSTEM_PROMPT, [
+  const { apiKey, baseUrl, model } = providerConfig(apiConfig)
+
+  const response = await callProvider(apiKey, baseUrl, model, JOURNAL_ANALYSIS_SYSTEM_PROMPT, [
     { role: "user", content: text },
   ])
 
@@ -116,14 +158,17 @@ BOUNDARIES:
 export async function generateChatResponse(
   message: string,
   history: ClaudeMessage[],
-  userContext: { exam_type: string; recent_mood_avg: number; recent_triggers: string[] }
+  userContext: { exam_type: string; recent_mood_avg: number; recent_triggers: string[] },
+  apiConfig?: ApiConfig
 ) {
   if (!message || message.trim().length === 0) {
     throw new Error("Chat message must not be empty")
   }
 
+  const { apiKey, baseUrl, model } = providerConfig(apiConfig)
   const systemPrompt = buildChatSystemPrompt(userContext)
-  return claudeRequest(systemPrompt, history, 2048)
+
+  return callProvider(apiKey, baseUrl, model, systemPrompt, [...history, { role: "user", content: message }])
 }
 
 const WEEKLY_INSIGHT_SYSTEM_PROMPT = `You are an emotional pattern analyst for students. Given 7 days of journal entries, return ONLY valid JSON with:
@@ -134,13 +179,15 @@ const WEEKLY_INSIGHT_SYSTEM_PROMPT = `You are an emotional pattern analyst for s
 
 IMPORTANT: Focus on patterns, improvements, and actionable insights. Never make medical claims.`
 
-export async function generateWeeklyInsight(entries: string[]) {
+export async function generateWeeklyInsight(entries: string[], apiConfig?: ApiConfig) {
   if (!entries || entries.length === 0) {
     throw new Error("At least one journal entry is required")
   }
 
+  const { apiKey, baseUrl, model } = providerConfig(apiConfig)
   const entriesText = entries.map((e, i) => `Day ${i + 1}: ${e}`).join("\n\n")
-  const response = await claudeRequest(WEEKLY_INSIGHT_SYSTEM_PROMPT, [
+
+  const response = await callProvider(apiKey, baseUrl, model, WEEKLY_INSIGHT_SYSTEM_PROMPT, [
     { role: "user", content: entriesText },
   ])
 
@@ -153,48 +200,5 @@ export async function generateWeeklyInsight(entries: string[]) {
       behavioral_nudge: "Try journaling at the same time each day for more consistent tracking.",
       avg_mood: 5,
     }
-  }
-}
-
-export async function streamChatResponse(
-  message: string,
-  history: ClaudeMessage[],
-  userContext: { exam_type: string; recent_mood_avg: number; recent_triggers: string[] }
-): Promise<ReadableStream<Uint8Array>> {
-  if (!message || message.trim().length === 0) {
-    throw new Error("Chat message must not be empty")
-  }
-
-  const apiKey = getApiKey()
-  const systemPrompt = buildChatSystemPrompt(userContext)
-
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-
-  try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        stream: true,
-        system: systemPrompt,
-        messages: [...history, { role: "user", content: message }],
-      }),
-      signal: controller.signal,
-    })
-
-    if (!res.ok) {
-      throw new Error(`Claude API error: ${res.status}`)
-    }
-
-    return res.body!
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
