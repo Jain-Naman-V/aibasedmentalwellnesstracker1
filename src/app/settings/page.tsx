@@ -39,6 +39,16 @@ export default function SettingsPage() {
       setSelectedModel(config.model)
       const matched = PRESET_PROVIDERS.find((p) => p.baseUrl === config.baseUrl)
       if (matched) setSelectedProvider(matched.label)
+      if (config.apiKey && config.baseUrl) {
+        fetchModels(config.baseUrl, config.apiKey)
+          .then((result) => {
+            setModels(result)
+            if (config.model && !result.some((m) => m.id === config.model)) {
+              setSelectedModel("")
+            }
+          })
+          .catch(() => {})
+      }
     }
   }, [])
 
@@ -204,9 +214,9 @@ export default function SettingsPage() {
                 <p className="text-xs text-red-500" role="alert">{fetchError}</p>
               )}
 
-              {models.length > 0 && (
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Select a model</label>
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Selected Model</label>
+                {models.length > 0 ? (
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
@@ -217,8 +227,15 @@ export default function SettingsPage() {
                       <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
                     ))}
                   </select>
-                </div>
-              )}
+                ) : (
+                  <div className="flex h-10 w-full items-center rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    {selectedModel
+                      ? <span className="text-foreground">{selectedModel}</span>
+                      : <span>Fetch models to see available options</span>}
+                    {fetchingModels && <Loader2 className="ml-2 h-3 w-3 animate-spin" />}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
