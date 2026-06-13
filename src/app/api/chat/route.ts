@@ -79,6 +79,9 @@ export async function POST(req: Request) {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : "AI request failed"
         console.error("Chat AI error:", errMsg)
+        if (errMsg.includes("503") || errMsg.includes("high demand") || errMsg.includes("UNAVAILABLE")) {
+          return NextResponse.json({ error: "This model is currently overloaded. Try a different model in Settings." }, { status: 503 })
+        }
         return NextResponse.json({ error: "AI service error. Check your API key and try again." }, { status: 502 })
       }
     }

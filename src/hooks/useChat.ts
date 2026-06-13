@@ -1,9 +1,30 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import type { ChatMessage } from "@/types"
 import { mockChatHistory, getRecentMoodAverage, getTopTriggers } from "@/data/mock-data"
 import { getApiConfig } from "@/lib/api-config"
+
+const STORAGE_KEY = "mindguard-chat-history"
+
+function loadMessages(): ChatMessage[] {
+  if (typeof window === "undefined") return mockChatHistory
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return mockChatHistory
+}
+
+function saveMessages(messages: ChatMessage[]) {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+  } catch {}
+}
 
 function getMockResponse(userMessage: string): string {
   const lower = userMessage.toLowerCase()
@@ -26,10 +47,14 @@ function getMockResponse(userMessage: string): string {
 }
 
 export function useChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>(mockChatHistory)
+  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages)
   const [isLoading, setIsLoading] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    saveMessages(messages)
+  }, [messages])
 
   const streamMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return
@@ -105,13 +130,18 @@ export function useChat() {
           { id: `ai-${Date.now()}`, user_id: "user-1", role: "assistant", content: response, created_at: new Date().toISOString() },
         ])
       }
-    } catch {
+    } catch (err) {
       if (abortRef.current?.signal.aborted) return
+      const errMsg = err instanceof Error ? err.message : "AI request failed"
+      let fallbackContent = "I'm here to listen. Could you tell me more about what's on your mind?"
+      if (errMsg.includes("503") || errMsg.includes("overloaded")) {
+        fallbackContent = "⚠️ **Model overloaded.** That model is experiencing high demand right now.\n\nGo to **Settings → API Configuration** and try a different model (e.g. `claude-sonnet-4-20250514` → `claude-3-haiku-20240307` or `gpt-4o-mini`)."
+      }
       const fallback: ChatMessage = {
         id: `ai-${Date.now()}`,
         user_id: "user-1",
         role: "assistant",
-        content: "I'm here to listen. Could you tell me more about what's on your mind?",
+        content: fallbackContent,
         created_at: new Date().toISOString(),
       }
       setMessages((prev) => [...prev, fallback])
@@ -131,11 +161,17 @@ export function useChat() {
     setIsLoading(false)
   }, [])
 
+  const clearChat = useCallback(() => {
+    setMessages(mockChatHistory)
+    localStorage.removeItem(STORAGE_KEY)
+  }, [])
+
   return {
     messages,
     sendMessage,
     streamMessage,
     stopStreaming,
+    clearChat,
     isLoading,
     isStreaming,
   }

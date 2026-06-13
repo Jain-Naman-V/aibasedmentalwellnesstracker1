@@ -8,7 +8,7 @@ import { useChat } from "@/hooks/useChat"
 import { getDaysUntilExam, getRecentMoodAverage, getTopTriggers, mockUser } from "@/data/mock-data"
 
 export default function ChatPage() {
-  const { messages, sendMessage, streamMessage, isLoading, isStreaming, stopStreaming } = useChat()
+  const { messages, sendMessage, streamMessage, isLoading, isStreaming, stopStreaming, clearChat } = useChat()
   const [contextExpanded, setContextExpanded] = useState(false)
 
   const context = {
@@ -24,12 +24,21 @@ export default function ChatPage() {
         <div className="mx-auto w-full max-w-4xl flex-1 flex flex-col px-4 pt-4">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-lg font-bold">AI Companion</h1>
-            <button
-              onClick={() => setContextExpanded(!contextExpanded)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              {contextExpanded ? "Hide" : "Show"} context
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={clearChat}
+                className="text-xs text-muted-foreground hover:text-destructive"
+                aria-label="Clear chat history"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => setContextExpanded(!contextExpanded)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {contextExpanded ? "Hide" : "Show"} context
+              </button>
+            </div>
           </div>
 
           {contextExpanded && (

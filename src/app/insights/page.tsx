@@ -80,8 +80,8 @@ export default function InsightsPage() {
 
           <div className="rounded-xl border bg-card p-4 space-y-4">
             <h2 className="text-sm font-medium text-muted-foreground">30-Day Mood Trend</h2>
-            <div className="h-64" role="img" aria-label="Line chart of mood scores over the last 30 days">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-64 min-h-[16rem]" role="img" aria-label="Line chart of mood scores over the last 30 days">
+              <ResponsiveContainer width="100%" height={256}>
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
