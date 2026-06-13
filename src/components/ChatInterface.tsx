@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { Send, Bot, User, Square, Loader2 } from "lucide-react"
 import type { ChatMessage } from "@/types"
+import { formatMarkdown } from "@/lib/markdown"
 
 interface ChatInterfaceProps {
   messages: ChatMessage[]
@@ -38,7 +39,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
         role="article"
         aria-label={isUser ? "Your message" : "MindGuard response"}
       >
-        {message.content}
+        {isUser ? message.content : formatMarkdown(message.content)}
       </div>
       {isUser && (
         <div className="flex-shrink-0 mt-1">
