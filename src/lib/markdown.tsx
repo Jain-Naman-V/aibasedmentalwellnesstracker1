@@ -1,19 +1,20 @@
 import React from "react"
 
-function linkify(text: string): React.ReactNode[] {
+function linkify(text: string, keyBase: number): React.ReactNode[] {
   const urlRegex = /(https?:\/\/[^\s<]+)/g
   const parts = text.split(urlRegex)
   return parts.map((part, i) => {
+    const key = `l-${keyBase}-${i}`
     if (urlRegex.test(part)) {
       return React.createElement("a", {
-        key: i,
+        key,
         href: part,
         target: "_blank",
         rel: "noopener noreferrer",
         className: "underline text-primary hover:text-primary/80",
       }, part)
     }
-    return React.createElement(React.Fragment, { key: i }, part)
+    return React.createElement(React.Fragment, { key }, part)
   })
 }
 
@@ -25,18 +26,18 @@ function parseInline(text: string): React.ReactNode[] {
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(...linkify(text.slice(lastIndex, match.index)))
+      parts.push(...linkify(text.slice(lastIndex, match.index), lastIndex))
     }
     if (match[2]) {
-      parts.push(React.createElement("strong", { key: `b-${match.index}` }, ...linkify(match[2])))
+      parts.push(React.createElement("strong", { key: `b-${match.index}` }, ...linkify(match[2], match.index)))
     } else if (match[4]) {
-      parts.push(React.createElement("em", { key: `i-${match.index}` }, ...linkify(match[4])))
+      parts.push(React.createElement("em", { key: `i-${match.index}` }, ...linkify(match[4], match.index)))
     }
     lastIndex = match.index + match[0].length
   }
 
   if (lastIndex < text.length) {
-    parts.push(...linkify(text.slice(lastIndex)))
+    parts.push(...linkify(text.slice(lastIndex), lastIndex))
   }
 
   return parts
